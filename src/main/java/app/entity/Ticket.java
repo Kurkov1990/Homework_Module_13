@@ -1,13 +1,17 @@
 package app.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
+
 import java.time.Instant;
+import java.util.Objects;
 
 @Entity
 @Table(name = "ticket")
-@Data
+@Getter
+@Setter
 public class Ticket {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -28,4 +32,17 @@ public class Ticket {
     @ManyToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "to_planet_id", nullable = false)
     private Planet to;
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Ticket)) return false;
+        Ticket other = (Ticket) o;
+        return id != null && id.equals(other.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(id);
+    }
 }

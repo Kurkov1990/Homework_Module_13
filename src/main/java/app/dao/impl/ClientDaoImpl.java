@@ -9,66 +9,63 @@ import org.hibernate.Transaction;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 
 public class ClientDaoImpl implements ClientDao {
 
+    private <T> T executeRead(Function<Session, T> work, String errorMessage) {
+        try (Session s = HibernateUtils.getInstance().getSessionFactory().openSession()) {
+            return work.apply(s);
+        } catch (Exception e) {
+            throw new DaoException(errorMessage, e);
+        }
+    }
+
+    private <T> T executeInTransaction(Function<Session, T> work, String errorMessage) {
+        Transaction tx = null;
+        try (Session s = HibernateUtils.getInstance().getSessionFactory().openSession()) {
+            tx = s.beginTransaction();
+            T result = work.apply(s);
+            tx.commit();
+            return result;
+        } catch (Exception e) {
+            if (tx != null && tx.isActive()) tx.rollback();
+            throw new DaoException(errorMessage, e);
+        }
+    }
+
     @Override
     public Client create(Client entity) {
-        Transaction transaction = null;
-        try (Session s = HibernateUtils.getInstance().getSessionFactory().openSession()) {
-            transaction = s.beginTransaction();
+        return executeInTransaction(s -> {
             s.persist(entity);
-            transaction.commit();
             return entity;
-        } catch (Exception e) {
-            if (transaction != null) transaction.rollback();
-            throw new DaoException("Failed to create Client", e);
-        }
+        }, "Failed to create Client");
     }
 
     @Override
     public Optional<Client> findById(Long id) {
-        try (Session s = HibernateUtils.getInstance().getSessionFactory().openSession()) {
-            return Optional.ofNullable(s.get(Client.class, id));
-        } catch (Exception e) {
-            throw new DaoException("Failed to find Client by id=" + id, e);
-        }
+        return executeRead(s -> Optional.ofNullable(s.find(Client.class, id)),
+                "Failed to find Client by id=" + id);
     }
 
     @Override
     public List<Client> findAll() {
-        try (Session s = HibernateUtils.getInstance().getSessionFactory().openSession()) {
-            return s.createQuery("from Client", Client.class).list();
-        } catch (Exception e) {
-            throw new DaoException("Failed to load all Clients", e);
-        }
+        return executeRead(s -> s.createQuery("from Client", Client.class).list(),
+                "Failed to load all Clients");
     }
 
     @Override
     public Client update(Client entity) {
-        Transaction transaction = null;
-        try (Session s = HibernateUtils.getInstance().getSessionFactory().openSession()) {
-            transaction = s.beginTransaction();
-            Client merged = s.merge(entity);
-            transaction.commit();
-            return merged;
-        } catch (Exception e) {
-            if (transaction != null) transaction.rollback();
-            throw new DaoException("Failed to update Client id=" + entity.getId(), e);
-        }
+        return executeInTransaction(s -> s.merge(entity),
+                "Failed to update Client id=" + entity.getId());
     }
 
     @Override
     public void deleteById(Long id) {
-        Transaction transaction = null;
-        try (Session s = HibernateUtils.getInstance().getSessionFactory().openSession()) {
-            transaction = s.beginTransaction();
-            Client found = s.get(Client.class, id);
+        executeInTransaction(s -> {
+            Client found = s.find(Client.class, id);
             if (found != null) s.remove(found);
-            transaction.commit();
-        } catch (Exception e) {
-            if (transaction != null) transaction.rollback();
-            throw new DaoException("Failed to delete Client id=" + id, e);
-        }
+            return null;
+        }, "Failed to delete Client id=" + id);
     }
 }

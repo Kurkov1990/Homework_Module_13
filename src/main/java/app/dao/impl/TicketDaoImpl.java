@@ -9,80 +9,73 @@ import org.hibernate.Transaction;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 
 public class TicketDaoImpl implements TicketDao {
 
+    private <T> T executeRead(Function<Session, T> work, String errorMessage) {
+        try (Session s = HibernateUtils.getInstance().getSessionFactory().openSession()) {
+            return work.apply(s);
+        } catch (Exception e) {
+            throw new DaoException(errorMessage, e);
+        }
+    }
+
+    private <T> T executeInTransaction(Function<Session, T> work, String errorMessage) {
+        Transaction tx = null;
+        try (Session s = HibernateUtils.getInstance().getSessionFactory().openSession()) {
+            tx = s.beginTransaction();
+            T result = work.apply(s);
+            tx.commit();
+            return result;
+        } catch (Exception e) {
+            if (tx != null && tx.isActive()) tx.rollback();
+            throw new DaoException(errorMessage, e);
+        }
+    }
+
     @Override
     public Ticket create(Ticket entity) {
-        Transaction transaction = null;
-        try (Session s = HibernateUtils.getInstance().getSessionFactory().openSession()) {
-            transaction = s.beginTransaction();
+        return executeInTransaction(s -> {
             s.persist(entity);
-            transaction.commit();
             return entity;
-        } catch (Exception e) {
-            if (transaction != null) transaction.rollback();
-            throw new DaoException("Failed to create Ticket", e);
-        }
+        }, "Failed to create Ticket");
     }
 
     @Override
     public Optional<Ticket> findById(Long id) {
-        try (Session s = HibernateUtils.getInstance().getSessionFactory().openSession()) {
-            return Optional.ofNullable(s.get(Ticket.class, id));
-        } catch (Exception e) {
-            throw new DaoException("Failed to find Ticket by id=" + id, e);
-        }
+        return executeRead(s -> Optional.ofNullable(s.find(Ticket.class, id)),
+                "Failed to find Ticket by id=" + id);
     }
 
     @Override
     public List<Ticket> findAll() {
-        try (Session s = HibernateUtils.getInstance().getSessionFactory().openSession()) {
-            return s.createQuery("from Ticket", Ticket.class).list();
-        } catch (Exception e) {
-            throw new DaoException("Failed to load all Tickets", e);
-        }
+        return executeRead(s -> s.createQuery("from Ticket", Ticket.class).list(),
+                "Failed to load all Tickets");
     }
 
     @Override
     public List<Ticket> findAllWithJoins() {
-        try (Session s = HibernateUtils.getInstance().getSessionFactory().openSession()) {
-            return s.createQuery(
-                    "select distinct t from Ticket t " +
-                            "join fetch t.client " +
-                            "join fetch t.from " +
-                            "join fetch t.to", Ticket.class
-            ).list();
-        } catch (Exception e) {
-            throw new DaoException("Failed to load Tickets with joins", e);
-        }
+        return executeRead(s -> s.createQuery(
+                "select distinct t from Ticket t " +
+                        "join fetch t.client " +
+                        "join fetch t.from " +
+                        "join fetch t.to", Ticket.class
+        ).list(), "Failed to load Tickets with joins");
     }
 
     @Override
     public Ticket update(Ticket entity) {
-        Transaction transaction = null;
-        try (Session s = HibernateUtils.getInstance().getSessionFactory().openSession()) {
-            transaction = s.beginTransaction();
-            Ticket merged = s.merge(entity);
-            transaction.commit();
-            return merged;
-        } catch (Exception e) {
-            if (transaction != null) transaction.rollback();
-            throw new DaoException("Failed to update Ticket id=" + entity.getId(), e);
-        }
+        return executeInTransaction(s -> s.merge(entity),
+                "Failed to update Ticket id=" + entity.getId());
     }
 
     @Override
     public void deleteById(Long id) {
-        Transaction transaction = null;
-        try (Session s = HibernateUtils.getInstance().getSessionFactory().openSession()) {
-            transaction = s.beginTransaction();
-            Ticket found = s.get(Ticket.class, id);
+        executeInTransaction(s -> {
+            Ticket found = s.find(Ticket.class, id);
             if (found != null) s.remove(found);
-            transaction.commit();
-        } catch (Exception e) {
-            if (transaction != null) transaction.rollback();
-            throw new DaoException("Failed to delete Ticket id=" + id, e);
-        }
+            return null;
+        }, "Failed to delete Ticket id=" + id);
     }
 }
