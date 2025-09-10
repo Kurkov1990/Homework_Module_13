@@ -10,6 +10,7 @@ import app.service.TicketService;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 
 public class TicketServiceImpl implements TicketService {
 
@@ -25,26 +26,10 @@ public class TicketServiceImpl implements TicketService {
 
     @Override
     public Ticket create(Long clientId, String fromPlanetId, String toPlanetId) {
-        Long cid = requireClientId(clientId);
-        String fromId = requirePlanetId(fromPlanetId);
-        String toId = requirePlanetId(toPlanetId);
-
-        Client client = clientDao.findById(cid)
-                .orElseThrow(() -> new IllegalArgumentException("Client not found: " + cid));
-        Planet from = planetDao.findById(fromId)
-                .orElseThrow(() -> new IllegalArgumentException("From planet not found: " + fromId));
-        Planet to = planetDao.findById(toId)
-                .orElseThrow(() -> new IllegalArgumentException("To planet not found: " + toId));
-
-        if (from.getId().equals(to.getId())) {
-            throw new IllegalArgumentException("From and To planets must differ");
-        }
-
+        Client client = requireClient(clientId);
         Ticket t = new Ticket();
         t.setClient(client);
-        t.setFrom(from);
-        t.setTo(to);
-
+        resolveAndApplyRoute(t, fromPlanetId, toPlanetId);
         return ticketDao.create(t);
     }
 
@@ -67,27 +52,33 @@ public class TicketServiceImpl implements TicketService {
     public Ticket changeRoute(Long ticketId, String newFromPlanetId, String newToPlanetId) {
         Ticket t = ticketDao.findById(ticketId)
                 .orElseThrow(() -> new IllegalArgumentException("Ticket not found: " + ticketId));
-
-        String fromId = requirePlanetId(newFromPlanetId);
-        String toId = requirePlanetId(newToPlanetId);
-
-        Planet newFrom = planetDao.findById(fromId)
-                .orElseThrow(() -> new IllegalArgumentException("From planet not found: " + fromId));
-        Planet newTo = planetDao.findById(toId)
-                .orElseThrow(() -> new IllegalArgumentException("To planet not found: " + toId));
-
-        if (newFrom.getId().equals(newTo.getId())) {
-            throw new IllegalArgumentException("From and To planets must differ");
-        }
-
-        t.setFrom(newFrom);
-        t.setTo(newTo);
+        resolveAndApplyRoute(t, newFromPlanetId, newToPlanetId);
         return ticketDao.update(t);
     }
 
     @Override
     public void delete(Long id) {
         ticketDao.deleteById(id);
+    }
+
+    private void resolveAndApplyRoute(Ticket t, String fromPlanetId, String toPlanetId) {
+        Planet from = requirePlanet(fromPlanetId);
+        Planet to = requirePlanet(toPlanetId);
+        if (from.getId().equals(to.getId())) {
+            throw new IllegalArgumentException("From and To planets must differ");
+        }
+        t.setFrom(from);
+        t.setTo(to);
+    }
+
+    private Client requireClient(Long id) {
+        Long cid = requireClientId(id);
+        return requireEntity(clientDao::findById, cid, "Client not found: " + cid);
+    }
+
+    private Planet requirePlanet(String id) {
+        String pid = requirePlanetId(id);
+        return requireEntity(planetDao::findById, pid, "Planet not found: " + pid);
     }
 
     private Long requireClientId(Long id) {
@@ -100,5 +91,9 @@ public class TicketServiceImpl implements TicketService {
         String trimmed = id.trim();
         if (trimmed.isEmpty()) throw new IllegalArgumentException("Planet id must not be empty");
         return trimmed;
+    }
+
+    private static <ID, E> E requireEntity(Function<ID, Optional<E>> finder, ID id, String notFoundMessage) {
+        return finder.apply(id).orElseThrow(() -> new IllegalArgumentException(notFoundMessage));
     }
 }
